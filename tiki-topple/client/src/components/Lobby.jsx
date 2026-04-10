@@ -1,95 +1,220 @@
-﻿export default function Lobby({ state, myId, onStart, onLeave }) {
-  const isHost = state.hostId === myId;
-  const hostName = state.players.find((p) => p.id === state.hostId)?.name || "N/A";
+import { useMemo, useState } from "react";
+
+export default function Lobby({ state, myId, onStart, onLeave, error }) {
+  const [copied, setCopied] = useState(false);
+
+  const host = state.players.find((p) => p.id === state.hostId);
+  const isHost = myId === state.hostId;
+  const canStart = state.players.length >= 2;
+  const fillPct = Math.round((state.players.length / state.maxPlayers) * 100);
+
+  const placeholderSlots = useMemo(() => {
+    const missing = Math.max(0, state.maxPlayers - state.players.length);
+    return Array.from({ length: missing }, (_, i) => i);
+  }, [state.maxPlayers, state.players.length]);
+
+  const copyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(state.roomCode);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1100);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = state.roomCode;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1100);
+    }
+  };
+
+  const initials = (name) => (name || "?").slice(0, 1).toUpperCase();
 
   return (
-    <div className="min-h-screen overflow-hidden relative text-white">
-      {/* Background */}
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_25%_0%,#60a5fa_0%,#2563eb_30%,#1e3a8a_65%,#0f172a_100%)]" />
-      <div className="absolute inset-0 opacity-15 [background-image:linear-gradient(rgba(255,255,255,.4)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.4)_1px,transparent_1px)] [background-size:34px_34px]" />
-
-      <div className="relative z-10 max-w-7xl mx-auto min-h-screen px-4 py-4 md:py-6 grid grid-cols-12 gap-4">
-        {/* Left: Room info */}
-        <section className="col-span-12 lg:col-span-4 rounded-3xl border-2 border-blue-200/50 bg-blue-500/25 backdrop-blur-md shadow-2xl p-5 flex flex-col gap-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-black">ROOM LOBBY</h2>
-            <button onClick={onLeave} className="px-3 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 font-bold">
-              Leave
-            </button>
-          </div>
-
-          <div className="rounded-2xl bg-blue-950/40 border border-blue-300/30 p-4 text-sm space-y-2">
-            <p><b>Room Code:</b> <span className="tracking-widest">{state.roomCode}</span></p>
-            <p><b>Max Players:</b> {state.maxPlayers}</p>
-            <p><b>Host:</b> {hostName}</p>
-          </div>
-
-          <div className="rounded-2xl bg-blue-950/40 border border-blue-300/30 p-4">
-            <p className="text-xs text-blue-100 mb-2">STATUS</p>
-            <div className="flex gap-2 flex-wrap">
-              <span className="px-2 py-1 rounded-full bg-emerald-400 text-slate-900 text-xs font-black">
-                {state.players.length >= 2 ? "Ready to start" : "Need 2 players"}
-              </span>
-              <span className="px-2 py-1 rounded-full bg-yellow-300 text-slate-900 text-xs font-black">
-                Realtime Sync
-              </span>
+    <div className="min-h-screen bg-[radial-gradient(1200px_700px_at_50%_-20%,#3B82F6_0%,#1E3A8A_45%,#0B1E5B_100%)] text-white p-4 sm:p-6">
+      <div className="max-w-[1500px] mx-auto">
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
+          {/* LEFT: Room info */}
+          <section className="xl:col-span-3 rounded-3xl border border-white/20 bg-white/10 backdrop-blur-xl p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <h2 className="text-3xl sm:text-4xl font-extrabold leading-tight">Room Lobby</h2>
+              <button
+                onClick={onLeave}
+                className="px-4 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 font-semibold transition"
+              >
+                Leave
+              </button>
             </div>
-          </div>
-        </section>
 
-        {/* Center: Big room code + player progress */}
-        <section className="col-span-12 lg:col-span-5 rounded-3xl border-2 border-blue-200/50 bg-blue-500/20 backdrop-blur-md shadow-2xl p-5 flex flex-col">
-          <div className="text-center">
-            <p className="text-blue-100 text-sm">Share this code with friends</p>
-            <div className="mt-2 text-5xl md:text-6xl font-black tracking-[0.15em] text-yellow-300 drop-shadow">
-              {state.roomCode}
-            </div>
-          </div>
+            <div className="rounded-2xl bg-slate-900/30 border border-white/10 p-4 space-y-4">
+              <div>
+                <p className="text-xs uppercase tracking-wider text-slate-200/80">Room Info</p>
+                <div className="mt-2 space-y-1 text-base sm:text-lg">
+                  <p><span className="text-slate-300">Room Code:</span> <span className="font-bold">{state.roomCode}</span></p>
+                  <p><span className="text-slate-300">Max Players:</span> <span className="font-bold">{state.maxPlayers}</span></p>
+                  <p><span className="text-slate-300">Host:</span> <span className="font-bold">{host?.name || "-"}</span></p>
+                </div>
+              </div>
 
-          <div className="mt-6 rounded-2xl bg-blue-950/40 border border-blue-300/30 p-4">
-            <div className="flex items-center justify-between text-sm">
-              <span>Room Fill</span>
-              <span>{state.players.length}/{state.maxPlayers}</span>
-            </div>
-            <div className="mt-2 h-3 rounded-full bg-white/20 overflow-hidden">
-              <div
-                className="h-full bg-gradient-to-r from-emerald-300 to-green-500"
-                style={{ width: `${(state.players.length / state.maxPlayers) * 100}%` }}
-              />
-            </div>
-          </div>
+              <button
+                onClick={copyCode}
+                className={`w-full rounded-xl py-2.5 font-semibold transition ${
+                  copied
+                    ? "bg-emerald-500 text-slate-900"
+                    : "bg-sky-500 hover:bg-sky-600 text-white"
+                }`}
+              >
+                {copied ? "✓ Copied!" : "Copy Room Code"}
+              </button>
 
-          <div className="mt-6 text-center">
+              <p className="text-sm text-slate-200/90">
+                Invite your friends and ask them to join with this code.
+              </p>
+            </div>
+          </section>
+
+          {/* CENTER: Big room code + progress + start */}
+          <section className="xl:col-span-5 rounded-3xl border border-white/20 bg-white/10 backdrop-blur-xl p-5 shadow-2xl">
+            <p className="text-center text-slate-100 text-lg sm:text-xl">Share this code with friends</p>
+
+            <div className="mt-2 mb-5 rounded-2xl border border-white/15 bg-gradient-to-r from-yellow-300/20 to-amber-300/10 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-5xl sm:text-7xl font-black tracking-[0.12em] text-yellow-300 drop-shadow">
+                  {state.roomCode}
+                </h3>
+                <button
+                  onClick={copyCode}
+                  className={`shrink-0 px-4 py-2 rounded-xl text-sm font-semibold transition ${
+                    copied ? "bg-emerald-500 text-slate-900" : "bg-slate-100/20 hover:bg-slate-100/30"
+                  }`}
+                >
+                  {copied ? "Copied" : "Copy"}
+                </button>
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-slate-900/30 border border-white/10 p-4 mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-lg sm:text-xl font-semibold">Player Join Progress</p>
+                <p className="text-lg sm:text-xl font-bold">{state.players.length}/{state.maxPlayers}</p>
+              </div>
+              <div className="h-3 rounded-full bg-white/20 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400 transition-all duration-500"
+                  style={{ width: `${fillPct}%` }}
+                />
+              </div>
+            </div>
+
             {isHost ? (
               <button
                 onClick={onStart}
-                disabled={state.players.length < 2}
-                className="px-10 py-4 rounded-2xl text-2xl font-black bg-gradient-to-b from-yellow-300 to-orange-500 text-slate-900 border-2 border-yellow-100 disabled:opacity-50"
+                disabled={!canStart}
+                className={`w-full rounded-2xl py-4 sm:py-5 text-3xl sm:text-5xl font-black transition-all duration-300 ${
+                  canStart
+                    ? "bg-gradient-to-r from-emerald-300 via-cyan-300 to-indigo-300 text-slate-900 hover:scale-[1.01] shadow-[0_0_35px_rgba(52,211,153,0.45)] animate-pulse"
+                    : "bg-gradient-to-r from-slate-400/70 to-slate-500/70 text-slate-800 cursor-not-allowed"
+                }`}
               >
                 START GAME
               </button>
             ) : (
-              <div className="px-6 py-3 rounded-2xl bg-white/10 border border-white/20 inline-block">
+              <div className="w-full rounded-2xl py-4 text-center text-lg bg-slate-900/30 border border-white/10">
                 Waiting for host to start...
               </div>
             )}
-          </div>
-        </section>
 
-        {/* Right: players list */}
-        <section className="col-span-12 lg:col-span-3 rounded-3xl border-2 border-blue-200/50 bg-blue-500/25 backdrop-blur-md shadow-2xl p-5">
-          <h3 className="text-xl font-black mb-3">PLAYERS</h3>
-          <div className="space-y-2">
-            {state.players.map((p, i) => (
-              <div key={p.id} className="rounded-xl bg-blue-950/45 border border-blue-300/30 px-3 py-3 flex justify-between items-center">
-                <span className="font-semibold">{i + 1}. {p.name}</span>
-                {p.id === state.hostId && (
-                  <span className="text-xs px-2 py-1 rounded-full bg-yellow-300 text-slate-900 font-black">HOST</span>
-                )}
+            <p className={`mt-3 text-base sm:text-lg ${canStart ? "text-emerald-200" : "text-amber-200"}`}>
+              {canStart ? "Lobby ready. You can start now." : "Need at least 2 players to start."}
+            </p>
+
+            {error && (
+              <div className="mt-3 rounded-xl bg-rose-500/20 border border-rose-300/40 text-rose-100 px-3 py-2 text-sm">
+                {error}
               </div>
-            ))}
-          </div>
-        </section>
+            )}
+          </section>
+
+          {/* RIGHT: Players list */}
+          <section className="xl:col-span-4 rounded-3xl border border-white/20 bg-white/10 backdrop-blur-xl p-5 shadow-2xl">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-3xl sm:text-5xl font-extrabold">Players</h3>
+              <span className="text-sm rounded-full px-3 py-1 bg-white/15">
+                {state.players.length}/{state.maxPlayers}
+              </span>
+            </div>
+
+            <div className="space-y-3">
+              {state.players.map((p, i) => {
+                const isPlayerHost = p.id === state.hostId;
+                const isReady = state.players.length >= 2; // simple indicator without changing logic
+
+                return (
+                  <div
+                    key={p.id}
+                    className="rounded-2xl bg-slate-900/30 border border-white/10 px-3 py-3 flex items-center gap-3"
+                  >
+                    {/* Avatar */}
+                    <div className="h-11 w-11 rounded-full bg-gradient-to-br from-cyan-300 to-indigo-400 text-slate-900 font-black grid place-items-center">
+                      {initials(p.name)}
+                    </div>
+
+                    {/* Name + status */}
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-lg truncate">
+                        {i + 1}. {p.name}
+                        {p.id === myId ? " (You)" : ""}
+                      </p>
+                      <p className="text-xs text-slate-300">
+                        {isReady ? "Ready" : "Waiting for players..."}
+                      </p>
+                    </div>
+
+                    {/* Ready dot */}
+                    <span
+                      className={`h-3 w-3 rounded-full ${isReady ? "bg-emerald-400" : "bg-amber-300"}`}
+                      title={isReady ? "Ready" : "Waiting"}
+                    />
+
+                    {/* Host badge */}
+                    {isPlayerHost && (
+                      <span className="px-3 py-1 rounded-full text-xs sm:text-sm font-black bg-yellow-300 text-black">
+                        HOST
+                      </span>
+                    )}
+
+                    {/* Leave button (only for non-host rows, UI only placeholder) */}
+                    {!isPlayerHost && (
+                      <button
+                        className="px-2.5 py-1 rounded-lg text-xs bg-rose-500/80 hover:bg-rose-500"
+                        onClick={onLeave}
+                        title="Leave room"
+                      >
+                        Leave
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Empty slots */}
+              {placeholderSlots.map((slot) => (
+                <div
+                  key={`slot-${slot}`}
+                  className="rounded-2xl border border-dashed border-white/20 bg-white/5 px-3 py-3 flex items-center gap-3 text-slate-300"
+                >
+                  <div className="h-11 w-11 rounded-full bg-white/10 grid place-items-center">+</div>
+                  <div>
+                    <p className="font-semibold">Waiting for player...</p>
+                    <p className="text-xs text-slate-400">Open slot</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
       </div>
     </div>
   );
