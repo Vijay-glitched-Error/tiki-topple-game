@@ -1,71 +1,70 @@
 ﻿# tiki-topple-game
-🎮 Tikki Topple (Online Board Game)
-📝 Game Description
+Tikki Topple (Online Board Game)
+1. Introduction
 
-Tikki Topple is a strategic multiplayer board game that we have developed as an online web-based game.
+Tikki Topple is a strategic multiplayer board game developed as an online web-based application. The game is designed to simulate the dynamics of the traditional Tikki Topple board game in a digital environment, allowing multiple players to compete in real time.
 
-In this game:
+Each player is assigned specific Tikki cards (targets) and a set of Topple cards (actions). By using these action cards, players can manipulate the positions of tikkis on the board. The objective is to strategically position assigned tikkis within the top ranks while disrupting opponents’ plans.
 
-Each player is assigned Tikki cards (targets)
-Players are also given Topple cards (actions)
-Using topple cards, players can shuffle, move, or eliminate tikkis on the board
+2. Game Description
+Players are assigned hidden Tikki cards representing their targets.
+Each player receives Topple cards that allow them to perform actions such as moving or eliminating tikkis.
+Players take turns using these cards to alter the arrangement of tikkis on the board.
+The gameplay involves both strategic planning and competitive interaction among players.
 
-The main goal is to:
-👉 Get your assigned tikkis into the top 3 positions
+At the end of each round:
 
-At the end of the round:
+The top three tikkis on the board are considered for scoring.
+Players receive points based on the positions of their assigned tikkis.
 
-Only the top 3 tikkis on the board give points
-Players earn points based on how well their assigned tikkis perform
+The player with the highest score at the conclusion of the game is declared the winner.
 
-💡 The game is all about strategy + chaos + smart moves
-
-🎯 Game Instructions
-👥 Number of Players
+3. Game Instructions
+3.1 Number of Players
 Minimum: 2 players
 Maximum: 4 players
-🎴 Tikki Cards Setup
-For 2 players → 7 tikki cards are used
-For 3 or 4 players → 1 tikki card is removed
-🕹️ Gameplay Flow
-Each player receives:
-Tikki cards (their targets)
-Topple cards (actions to play)
-Players take turns using topple cards to:
-Move tikkis forward
-Push tikkis backward
-Eliminate tikkis
-The board keeps changing dynamically as players play their moves
-End of the round:
-The top 3 tikkis are selected
-Points are awarded based on positions
-Final result:
-Player with the highest score wins
-⚙️ How to Run the Game
-🖥️ Prerequisites
+3.2 Tikki Card Configuration
+For 2 players: 7 tikki cards are used
+For 3 or 4 players: 1 tikki card is removed from the set
+3.3 Gameplay Procedure
+Each player is assigned:
+Tikki cards (targets)
+Topple cards (action cards)
+Players take turns performing actions using their Topple cards, including:
+Moving tikkis forward
+Moving tikkis backward
+Eliminating tikkis from the board
+The arrangement of tikkis changes dynamically throughout the game based on player actions.
+At the end of the round:
+The top three tikkis are identified
+Points are awarded accordingly
+The game concludes after all rounds are completed, and the player with the highest total score wins.
+4. How to Run the Application
+4.1 Prerequisites
 
-Make sure you have:
+Ensure the following are installed on your system:
 
-Node.js installed → https://nodejs.org
-VS Code or any code editor
-🚀 Steps to Run
-1. Clone the Repository
+Node.js (https://nodejs.org
+)
+A code editor such as Visual Studio Code
+4.2 Installation and Setup
+Step 1: Clone the Repository
 git clone https://github.com/Vijay-glitched-Error/tiki-topple-game.git
 cd tiki-topple-game
-2. Install Dependencies
+Step 2: Install Dependencies
 
-👉 For Frontend:
+Frontend:
 
 cd client
 npm install
 
-👉 For Backend (if present):
+Backend (if applicable):
 
 cd server
 npm install
-3. Run the Project
+4.3 Running the Application
 
-👉 Start Frontend:
+Frontend:
 
 npm run dev
 
@@ -73,31 +72,32 @@ or
 
 npm start
 
-👉 Start Backend:
+Backend:
 
 node server.js
 
 or
 
 npm start
-4. Open in Browser
+4.4 Accessing the Application
+
+Open a web browser and navigate to:
+
 http://localhost:3000
 
-(or check terminal for the correct port)
+(Refer to the terminal output for the exact port if different.)
 
-🎮 How to Play Online
-Create a room using a room code
-Other players join using:
-Same room code
-Their names
-Once all players join → start the game
-Play turns and use topple cards strategically
-Win by scoring the highest points 🎉
-💡 Tech Stack
+5. Gameplay (Online Mode)
+A player creates a game room using a unique room code.
+Other players join the room by entering:
+The same room code
+Their respective names
+Once all players have joined, the game session begins.
+Players take turns and use their Topple cards strategically.
+The player with the highest score at the end of the game is declared the winner.
+6. Technology Stack
 Frontend: HTML, CSS, JavaScript / React
 Backend: Node.js
-Version Control: GitHub
-👨‍💻 Contributors
-You and your team 🚀
-
-If you want, I can make this even more hackathon-level (with badges, screenshots, animations, etc.) or tailor it exactly to your folder structure 👍
+Version Control: Git and GitHub
+7. Contributors
+Project developed collaboratively by the team
