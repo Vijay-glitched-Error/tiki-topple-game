@@ -1,16 +1,50 @@
-﻿const express = require("express");
+const express = require("express");
 const http = require("http");
 const cors = require("cors");
 const { Server } = require("socket.io");
 
 const app = express();
 app.use(cors());
+app.use(express.json());
 
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
 const PORT = process.env.PORT || 4000;
 const rooms = {};
+
+// ---------- Utilities ----------
+function safeCb(cb, payload) {
+  try {
+    if (typeof cb === "function") cb(payload);
+  } catch (e) {
+    console.error("Callback error:", e);
+  }
+}
+
+function safeHandler(eventName, handler) {
+  return (...args) => {
+    const cb = args[args.length - 1];
+    try {
+      handler(...args);
+    } catch (err) {
+      console.error(`[${eventName}] Unhandled error:`, err);
+      safeCb(cb, { ok: false, error: "Internal server error" });
+    }
+  };
+}
+
+function validateString(v, max = 64) {
+  return typeof v === "string" && v.trim().length > 0 && v.trim().length <= max;
+}
+
+function isValidRoomCode(code) {
+  return typeof code === "string" && /^[A-Z0-9]{6}$/.test(code);
+}
+
+function isValidPlayerCount(n) {
+  return [2, 3, 4].includes(Number(n));
+}
 
 function genCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -28,34 +62,16 @@ function shuffle(arr) {
   return a;
 }
 
-// ---------- Official rules helpers ----------
-
+// ---------- Rules ----------
 function roundCountByPlayers(n) {
-  if (n === 2) return 2; // updated
+  if (n === 2) return 2;
   if (n === 3) return 3;
   if (n === 4) return 4;
   return 0;
 }
 
 function buildRoundDeck(playerCount) {
-  // Exact deck requested by you:
-  // 2 players (7):
-  // 1) UP1
-  // 2) UP1
-  // 3) UP2
-  // 4) UP3
-  // 5) TOAST
-  // 6) TOAST
-  // 7) TOPPLE
-  //
-  // 3/4 players (6):
-  // 1) UP1
-  // 2) UP2
-  // 3) UP3
-  // 4) TOAST
-  // 5) TOAST
-  // 6) TOPPLE
-
+  // 2 players -> 8 cards
   const deck2P = [
     { type: "UP", steps: 1, label: "Tiki Up 1" },
     { type: "UP", steps: 1, label: "Tiki Up 1" },
@@ -64,8 +80,10 @@ function buildRoundDeck(playerCount) {
     { type: "TOAST", label: "Tiki Toast" },
     { type: "TOAST", label: "Tiki Toast" },
     { type: "TOPPLE", label: "Tiki Topple" },
+    { type: "MAX", label: "Tiki Max" }, // NEW
   ];
 
+  // 3/4 players -> 7 cards
   const deck3Or4P = [
     { type: "UP", steps: 1, label: "Tiki Up 1" },
     { type: "UP", steps: 2, label: "Tiki Up 2" },
@@ -73,6 +91,7 @@ function buildRoundDeck(playerCount) {
     { type: "TOAST", label: "Tiki Toast" },
     { type: "TOAST", label: "Tiki Toast" },
     { type: "TOPPLE", label: "Tiki Topple" },
+    { type: "MAX", label: "Tiki Max" }, // NEW
   ];
 
   const base = playerCount === 2 ? deck2P : deck3Or4P;
@@ -83,10 +102,10 @@ function buildRoundDeck(playerCount) {
   }));
 }
 
-// secret card scoring:
-// top icon: 9 pts if 1st
-// middle icon: 5 pts if 1st or 2nd
-// bottom icon: 2 pts if 1st/2nd/3rd
+// Secret scoring:
+// slot1: 9 pts if tiki ends 1st
+// slot2: 5 pts if tiki ends 1st/2nd
+// slot3: 2 pts if tiki ends 1st/2nd/3rd
 function dealSecretCards(players) {
   const out = {};
   const pool = shuffle([1, 2, 3, 4, 5, 6, 7, 8, 9]);
@@ -104,17 +123,15 @@ function dealSecretCards(players) {
   return out;
 }
 
-// ---------- Game state ----------
-
+// ---------- State ----------
 function initRoundState(room) {
-  const playerCount = room.players.length;
   const hands = {};
   room.players.forEach((p) => {
-    hands[p.id] = buildRoundDeck(playerCount);
+    hands[p.id] = buildRoundDeck(room.players.length);
   });
 
   return {
-    tikiOrder: shuffle([1, 2, 3, 4, 5, 6, 7, 8, 9]), // top->bottom
+    tikiOrder: shuffle([1, 2, 3, 4, 5, 6, 7, 8, 9]), // top -> bottom
     removedTikis: [],
     hands,
     secretCards: dealSecretCards(room.players), // private
@@ -167,13 +184,7 @@ function emitPrivateState(room) {
   });
 }
 
-// ---------- Action engine ----------
-
-function nextTurn(room) {
-  const n = room.players.length;
-  room.roundState.currentTurn = (room.roundState.currentTurn + 1) % n;
-}
-
+// ---------- Actions ----------
 function consumeCard(rs, playerId, cardUid) {
   const hand = rs.hands[playerId] || [];
   const idx = hand.findIndex((c) => c.uid === cardUid);
@@ -184,62 +195,77 @@ function consumeCard(rs, playerId, cardUid) {
 
 function applyAction(room, playerId, action) {
   const rs = room.roundState;
+  if (!rs) return { ok: false, error: "Round not initialized" };
+
   const active = room.players[rs.currentTurn];
   if (!active || active.id !== playerId) return { ok: false, error: "Not your turn" };
 
   const { cardUid, type, targetTikiId } = action || {};
-  if (!cardUid) return { ok: false, error: "Missing cardUid" };
+  if (!validateString(cardUid, 128)) return { ok: false, error: "Missing/invalid cardUid" };
+  if (!["UP", "TOPPLE", "TOAST", "MAX"].includes(type)) {
+    return { ok: false, error: "Invalid action type" };
+  }
 
   const consumed = consumeCard(rs, playerId, cardUid);
   if (!consumed.ok) return consumed;
   const card = consumed.card;
 
-  // must match selected card
   if (card.type !== type) return { ok: false, error: "Card/action mismatch" };
 
   if (card.type === "UP") {
-    const steps = card.steps;
+    if (!Number.isInteger(targetTikiId)) return { ok: false, error: "UP needs target tiki" };
     const idx = rs.tikiOrder.indexOf(targetTikiId);
     if (idx === -1) return { ok: false, error: "Invalid target tiki" };
+
+    const steps = Number(card.steps || 0);
+    if (![1, 2, 3].includes(steps)) return { ok: false, error: "Invalid UP steps" };
 
     const newIdx = Math.max(0, idx - steps);
     rs.tikiOrder.splice(idx, 1);
     rs.tikiOrder.splice(newIdx, 0, targetTikiId);
+
   } else if (card.type === "TOPPLE") {
+    if (!Number.isInteger(targetTikiId)) return { ok: false, error: "TOPPLE needs target tiki" };
     const idx = rs.tikiOrder.indexOf(targetTikiId);
     if (idx === -1) return { ok: false, error: "Invalid target tiki" };
 
     rs.tikiOrder.splice(idx, 1);
     rs.tikiOrder.push(targetTikiId);
+
   } else if (card.type === "TOAST") {
     if (!rs.hasAnyMove) return { ok: false, error: "Tiki Toast cannot be first move of round" };
     if (rs.tikiOrder.length <= 3) return { ok: false, error: "Cannot toast when only 3 tikis remain" };
 
     const removed = rs.tikiOrder.pop();
     rs.removedTikis.push(removed);
-  } else {
-    return { ok: false, error: "Unknown card type" };
+
+  } else if (card.type === "MAX") {
+    if (!Number.isInteger(targetTikiId)) return { ok: false, error: "MAX needs target tiki" };
+    const idx = rs.tikiOrder.indexOf(targetTikiId);
+    if (idx === -1) return { ok: false, error: "Invalid target tiki" };
+
+    rs.tikiOrder.splice(idx, 1);
+    rs.tikiOrder.unshift(targetTikiId); // move directly to top
   }
 
   rs.hasAnyMove = true;
 
-  // round end: only 3 tikis remain OR all cards used
+  // Round ends when only 3 tikis remain OR all cards used
   const allHandsEmpty = room.players.every((p) => (rs.hands[p.id] || []).length === 0);
   if (rs.tikiOrder.length === 3 || allHandsEmpty) {
     rs.ended = true;
   } else {
-    nextTurn(room);
+    rs.currentTurn = (rs.currentTurn + 1) % room.players.length;
   }
 
   return { ok: true };
 }
 
 // ---------- Scoring ----------
-
 function scoreRound(room) {
   const rs = room.roundState;
-  const top3 = rs.tikiOrder.slice(0, 3); // final top positions
-  const pos = new Map(top3.map((t, i) => [t, i + 1])); // 1..3
+  const top3 = rs.tikiOrder.slice(0, 3);
+  const pos = new Map(top3.map((t, i) => [t, i + 1]));
 
   room.players.forEach((p) => {
     const secret = rs.secretCards[p.id] || [];
@@ -252,7 +278,7 @@ function scoreRound(room) {
   });
 }
 
-function tieBreakWinnerIds(room) {
+function topScorers(room) {
   let best = -Infinity;
   room.players.forEach((p) => {
     best = Math.max(best, room.scoreboard[p.id] || 0);
@@ -263,10 +289,10 @@ function tieBreakWinnerIds(room) {
 function finishRoundAndTransition(room) {
   scoreRound(room);
 
-  // If tiebreaker round, game ends now
+  // If final tie-break round, end game here
   if (room.isTieBreakerRound) {
     room.gameEnded = true;
-    room.winnerIds = tieBreakWinnerIds(room);
+    room.winnerIds = topScorers(room);
     return { gameEnded: true, tieBreakerStarted: false };
   }
 
@@ -278,11 +304,11 @@ function finishRoundAndTransition(room) {
     return { gameEnded: false, tieBreakerStarted: false };
   }
 
-  // End of scheduled rounds -> check tie
-  const tied = tieBreakWinnerIds(room);
+  // Scheduled rounds over -> tie check
+  const tied = topScorers(room);
   if (tied.length >= 2) {
     room.isTieBreakerRound = true;
-    room.currentRound += 1;
+    room.currentRound += 1; // show as extra round
     room.roundStarterIndex = (room.roundStarterIndex + 1) % room.players.length;
     room.roundState = initRoundState(room);
     return { gameEnded: false, tieBreakerStarted: true };
@@ -293,8 +319,7 @@ function finishRoundAndTransition(room) {
   return { gameEnded: true, tieBreakerStarted: false };
 }
 
-// ---------- Room maintenance ----------
-
+// ---------- Room remove ----------
 function removeFromRoom(roomCode, socketId) {
   const room = rooms[roomCode];
   if (!room) return;
@@ -313,7 +338,7 @@ function removeFromRoom(roomCode, socketId) {
     return;
   }
 
-  if (room.gameStarted) {
+  if (room.gameStarted && !room.gameEnded) {
     room.gameEnded = true;
     room.winnerIds = [];
   }
@@ -321,12 +346,11 @@ function removeFromRoom(roomCode, socketId) {
   io.to(roomCode).emit("updateState", publicState(room));
 }
 
-// ---------- Socket events ----------
-
+// ---------- Socket ----------
 io.on("connection", (socket) => {
-  socket.on("createRoom", ({ name, maxPlayers = 4 }, cb) => {
-    if (!name || !name.trim()) return cb({ ok: false, error: "Name required" });
-    if (![2, 3, 4].includes(maxPlayers)) return cb({ ok: false, error: "Invalid max players" });
+  socket.on("createRoom", safeHandler("createRoom", ({ name, maxPlayers = 4 }, cb) => {
+    if (!validateString(name, 24)) return safeCb(cb, { ok: false, error: "Invalid name" });
+    if (!isValidPlayerCount(maxPlayers)) return safeCb(cb, { ok: false, error: "Invalid max players" });
 
     let code = genCode();
     while (rooms[code]) code = genCode();
@@ -334,7 +358,7 @@ io.on("connection", (socket) => {
     rooms[code] = {
       roomCode: code,
       hostId: socket.id,
-      maxPlayers,
+      maxPlayers: Number(maxPlayers),
       players: [{ id: socket.id, name: name.trim() }],
       gameStarted: false,
       gameEnded: false,
@@ -350,15 +374,21 @@ io.on("connection", (socket) => {
     socket.join(code);
     socket.data.roomCode = code;
 
-    cb({ ok: true, roomCode: code, state: publicState(rooms[code]) });
-  });
+    safeCb(cb, { ok: true, roomCode: code, state: publicState(rooms[code]) });
+  }));
 
-  socket.on("joinRoom", ({ name, roomCode }, cb) => {
+  socket.on("joinRoom", safeHandler("joinRoom", ({ name, roomCode }, cb) => {
+    if (!validateString(name, 24)) return safeCb(cb, { ok: false, error: "Invalid name" });
+    if (!isValidRoomCode(roomCode)) return safeCb(cb, { ok: false, error: "Invalid room code" });
+
     const room = rooms[roomCode];
-    if (!room) return cb({ ok: false, error: "Room not found" });
-    if (!name || !name.trim()) return cb({ ok: false, error: "Name required" });
-    if (room.players.length >= room.maxPlayers) return cb({ ok: false, error: "Room full" });
-    if (room.gameStarted) return cb({ ok: false, error: "Game already started" });
+    if (!room) return safeCb(cb, { ok: false, error: "Room not found" });
+    if (room.players.length >= room.maxPlayers) return safeCb(cb, { ok: false, error: "Room full" });
+    if (room.gameStarted) return safeCb(cb, { ok: false, error: "Game already started" });
+
+    if (room.players.some((p) => p.id === socket.id)) {
+      return safeCb(cb, { ok: false, error: "Already in room" });
+    }
 
     room.players.push({ id: socket.id, name: name.trim() });
     room.scoreboard[socket.id] = 0;
@@ -367,14 +397,16 @@ io.on("connection", (socket) => {
     socket.data.roomCode = roomCode;
 
     io.to(roomCode).emit("updateState", publicState(room));
-    cb({ ok: true, roomCode, state: publicState(room) });
-  });
+    safeCb(cb, { ok: true, roomCode, state: publicState(room) });
+  }));
 
-  socket.on("startGame", ({ roomCode }, cb) => {
+  socket.on("startGame", safeHandler("startGame", ({ roomCode }, cb) => {
+    if (!isValidRoomCode(roomCode)) return safeCb(cb, { ok: false, error: "Invalid room code" });
+
     const room = rooms[roomCode];
-    if (!room) return cb({ ok: false, error: "Room not found" });
-    if (room.hostId !== socket.id) return cb({ ok: false, error: "Only host can start" });
-    if (room.players.length < 2) return cb({ ok: false, error: "Need at least 2 players" });
+    if (!room) return safeCb(cb, { ok: false, error: "Room not found" });
+    if (room.hostId !== socket.id) return safeCb(cb, { ok: false, error: "Only host can start" });
+    if (room.players.length < 2) return safeCb(cb, { ok: false, error: "Need at least 2 players" });
 
     room.gameStarted = true;
     room.gameEnded = false;
@@ -388,27 +420,35 @@ io.on("connection", (socket) => {
 
     io.to(roomCode).emit("updateState", publicState(room));
     emitPrivateState(room);
-    cb({ ok: true });
-  });
+    safeCb(cb, { ok: true });
+  }));
 
-  socket.on("playerAction", ({ roomCode, action }, cb) => {
+  socket.on("playerAction", safeHandler("playerAction", ({ roomCode, action }, cb) => {
+    if (!isValidRoomCode(roomCode)) return safeCb(cb, { ok: false, error: "Invalid room code" });
+
     const room = rooms[roomCode];
-    if (!room || !room.gameStarted || room.gameEnded) return cb({ ok: false, error: "Game not active" });
+    if (!room || !room.gameStarted || room.gameEnded) {
+      return safeCb(cb, { ok: false, error: "Game not active" });
+    }
+
+    const inRoom = room.players.some((p) => p.id === socket.id);
+    if (!inRoom) return safeCb(cb, { ok: false, error: "You are not in this room" });
 
     const out = applyAction(room, socket.id, action);
-    if (!out.ok) return cb(out);
+    if (!out.ok) return safeCb(cb, out);
 
     io.to(roomCode).emit("updateState", publicState(room));
     emitPrivateState(room);
 
     if (room.roundState.ended) {
+      const revealSecretCards = room.roundState?.secretCards || {};
       const transition = finishRoundAndTransition(room);
 
       io.to(roomCode).emit("roundEnd", {
         state: publicState(room),
         gameEnded: transition.gameEnded,
         tieBreakerStarted: transition.tieBreakerStarted,
-        revealSecretCards: room.roundState?.secretCards || {},
+        revealSecretCards,
       });
 
       if (!transition.gameEnded) {
@@ -417,23 +457,49 @@ io.on("connection", (socket) => {
       }
     }
 
-    cb({ ok: true });
-  });
+    safeCb(cb, { ok: true });
+  }));
 
-  socket.on("leaveRoom", ({ roomCode }, cb) => {
-    socket.leave(roomCode);
-    removeFromRoom(roomCode, socket.id);
+  socket.on("leaveRoom", safeHandler("leaveRoom", ({ roomCode }, cb) => {
+    if (isValidRoomCode(roomCode)) {
+      socket.leave(roomCode);
+      removeFromRoom(roomCode, socket.id);
+    }
     socket.data.roomCode = null;
-    cb?.({ ok: true });
-  });
+    safeCb(cb, { ok: true });
+  }));
 
   socket.on("disconnect", () => {
-    const rc = socket.data.roomCode;
-    if (rc) removeFromRoom(rc, socket.id);
+    try {
+      const rc = socket.data.roomCode;
+      if (rc) removeFromRoom(rc, socket.id);
+    } catch (e) {
+      console.error("disconnect handler error:", e);
+    }
   });
 });
 
+// ---------- HTTP ----------
 app.get("/", (_, res) => res.send("Tiki Topple server running"));
+app.get("/health", (_, res) => res.json({ ok: true, time: new Date().toISOString() }));
+
+app.use((req, res) => {
+  res.status(404).json({ ok: false, error: "Route not found" });
+});
+
+app.use((err, req, res, next) => {
+  console.error("Express error:", err);
+  res.status(500).json({ ok: false, error: "Internal server error" });
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("uncaughtException:", err);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("unhandledRejection:", reason);
+});
+
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on ${PORT}`);
 });
